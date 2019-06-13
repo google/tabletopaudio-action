@@ -52,13 +52,28 @@ async function cacheResults(conv: Conv) {
 }
 
 app.intent('Default Welcome Intent', async (conv) => {
-  conv.ask(new SimpleResponse({
-    text: 'Welcome to Tabletop Audio! I can play a specific track, ' +
-      'or start playing based on a genre. What do you want to listen to?',
-    speech: `Welcome to Tabletop Audio! I can play a specific track ` +
-      `like ${conv.data.json.tracks[0].track_title}, or start playing based on a genre like ` +
-      `${conv.data.json.tracks[0].track_genre}. What do you want to listen to?`
-  }))
+  if (conv.user.last.seen) {
+    // Welcome back user
+    conv.ask(new SimpleResponse({
+      text: 'Welcome back! What do you want to listen to?',
+      speech: `Welcome back! By the way, the track ` +
+        `${conv.data.json.tracks[0].track_title} was recently added. ` +
+        `What do you want to listen to?`
+    }))
+    conv.ask(new Suggestions(conv.data.json.tracks[0].track_title))
+    conv.ask(new Suggestions(`What's new?`))
+  } else {
+    // New user
+    conv.ask(new SimpleResponse({
+      text: 'Welcome to Tabletop Audio! I can play a specific track, ' +
+        'or start playing based on a genre. What do you want to listen to?',
+      speech: `Welcome to Tabletop Audio! I can play a specific track ` +
+        `like ${conv.data.json.tracks[0].track_title}, or start playing based on a genre like ` +
+        `${conv.data.json.tracks[0].track_genre}. What do you want to listen to?`
+    }))
+    conv.ask(new Suggestions(`Help`))
+    conv.ask(new Suggestions(`What's new?`))
+  }
   conv.ask(getSuggestions(conv.data.json.tracks))
 })
 
