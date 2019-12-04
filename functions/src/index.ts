@@ -15,7 +15,6 @@
 import {
   BasicCard,
   Button,
-  Contexts,
   dialogflow,
   DialogflowConversation,
   Image,
@@ -29,19 +28,71 @@ import fetch from 'node-fetch'
 
 const tabletopAudioUrl = 'https://tabletopaudio.com/tta_data'
 
+import { sessionEntitiesHelper, SessionEntitiesPlugin } from 'actions-on-google-dialogflow-session-entities-plugin'
 const app = dialogflow<Conv>({
   debug: true
-})
+}).use(sessionEntitiesHelper())
+
+
 app.middleware(async (conv: Conv) => {
   await cacheResults(conv)
+  setSessionEntities(conv)
 })
+
+const setSessionEntities = (conv: Conv) => {
+  // Create sets for each type of entity type
+  const trackTitles = new Set<string>()
+  const trackGenres = new Set<string>()
+  const trackTags = new Set<string>()
+
+  conv.data.json.tracks.forEach(track => {
+    trackTitles.add(track.track_title)
+    track.track_genre.forEach(genre => {
+      trackGenres.add(genre)
+    })
+    track.tags.forEach(tag => {
+      trackTags.add(tag)
+    })
+  })
+
+  conv.sessionEntities.add({
+    name: 'track',
+    entities: Array.from(trackTitles).map(title => {
+      return {
+        value: title,
+        synonyms: [title]
+      }
+    })
+  })
+  conv.sessionEntities.add({
+    name: 'genre',
+    entities: Array.from(trackGenres).map(genre => {
+      return {
+        value: genre,
+        synonyms: [genre]
+      }
+    })
+  })
+  conv.sessionEntities.add({
+    name: 'tag',
+    entities: Array.from(trackTags).map(tag => {
+      return {
+        value: tag,
+        synonyms: [tag]
+      }
+    })
+  })
+}
 
 interface TabletopAudioSession {
   json: TabletopAudioResponse,
-  currentTrack: TabletopAudioTrack
+  currentTrack: TabletopAudioTrack,
+  sessionEntities: SessionEntitiesPlugin
 }
 
-type Conv = DialogflowConversation<TabletopAudioSession>
+interface Conv extends DialogflowConversation<TabletopAudioSession> {
+  sessionEntities: SessionEntitiesPlugin
+}
 
 async function cacheResults(conv: Conv) {
   if (!conv.data.json) {
@@ -75,6 +126,7 @@ app.intent('Default Welcome Intent', async (conv) => {
     conv.ask(new Suggestions(`What's new?`))
   }
   conv.ask(getSuggestions(conv.data.json.tracks))
+  conv.sessionEntities.send()
 })
 
 function generateMediaResponse(track: TabletopAudioTrack): MediaObject {
@@ -126,9 +178,8 @@ function sanitizeTitle(title: string) {
     .replace(/:/g, '')
 }
 
-app.intent<{ search: string }>('Play', async (conv, params) => {
-  // "Orbital Platform" => "orbital platform"
-  const search = sanitizeTitle(params.search)
+function searchAndPlay(conv: Conv, searchString: string) {
+  const search = sanitizeTitle(searchString)
   const searchResults = []
 
   for (const track of conv.data.json.tracks) {
@@ -166,6 +217,21 @@ app.intent<{ search: string }>('Play', async (conv, params) => {
       `What would you like to listen to?`
   }))
   conv.ask(suggestions)
+}
+
+app.intent<{ search: string }>('Play', async (conv, params) => {
+  searchAndPlay(conv, params.search)
+})
+
+app.intent<{ title?: string, genre?: string, tag?: string }>
+    ('Play Entity', async (conv, params) => {
+  // "Orbital Platform" => "orbital platform"
+  const searchString = params.title || params.genre || params.tag
+  if (!searchString) {
+    conv.ask(`I apologize, I do not know what you are looking for. What do you want to play?`)
+    return
+  }
+  searchAndPlay(conv, searchString)
 })
 
 app.intent('Repeat', (conv) => {
